@@ -1,0 +1,5 @@
+product_id,product_name,price,stock,description
+101,"Laptop Pro, 15 inch",1200.50,15,"Powerful laptop for professionals."
+102,Gaming Mouse,50.00,,"Ergonomic design, RGB lighting."
+103,"USB Drive, 128GB",15.99,100,
+104,External SSD,,5,"Fast, portable storage."

@@ -1,0 +1,5 @@
+id,name,age,city,is_valid
+1,Alice,30,New York,true
+2,Bob,24,London,true
+3,Charlie,35,Paris,false
+4,Daniel,28,USA,false
