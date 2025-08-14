@@ -1,6 +1,5 @@
-use std::{any::Any, collections::{hash_map, HashMap}};
+use std::{collections::HashMap, iter, vec};
 
-use field_count::FieldCount;
 use serde::Deserialize;
 
 // tipo de dado para a coluna
@@ -79,33 +78,28 @@ fn main() {
     //identify_sql_command_columns(sql_command.to_string());
     
 
-    match load_csv_data(filepath) {
+    /*match load_csv_data(filepath) {
         Ok(data) => {
             let mut data_headers: HashMap<String, ColumnDataType> = HashMap::new();
             data_headers.clone_from(&data);
-
-            //println!("final result: {:#?}", data_headers);
-
-            //build_table_structure(data_headers);
         },
         Err(e) => eprintln!("Erro: {}", e),
+    }*/
+
+    let headers = ["id","name","age","city","is_valid"];
+    let mut vec_of_vectors: Vec<Vec<&str>> = Vec::<Vec<&str>>::new();
+    for record in headers {
+        let vector_name = "vec".to_string() + "_" + record;
+        let array = record.chars();
+        let record = vec![record, "second element"]; 
+        vec_of_vectors.push(record);
+        println!("{:?}", array);
     }
+    println!("{:?}", vec_of_vectors);
 
 }
 
 
-// reads CSV and returns a Vec with StringRecords
-fn read_file(filename: &str) -> /*Result<(), Box<dyn std::error::Error>>*/ Vec<csv::StringRecord> {
-    let mut rdr = csv::Reader::from_path(filename).expect("need a csv file");
-    let mut file_contents = Vec::new();
-
-    for result in rdr.records() {
-        let record = result.unwrap();
-        file_contents.push(record);
-    }
-
-    file_contents
-}
 
 // para transformar os dados, eu passo o comando SQL como parametro e recebo um vetor de structs novamente, com os dados atualizados (transformados)
 /*
@@ -186,18 +180,17 @@ fn load_csv_data(filename: &str) -> Result<HashMap<String, ColumnDataType>, Box<
         let record: csv::StringRecord = record_result?;
         remaining_records.push(record);
     }
-    //println!("headers: {:?}", headers);
-    //println!("load_csv_data remaining_records: {:?}", remaining_records);
 
     // mapped_records_and_columns já tem todas as informações dos registros, só preciso agora montar as estruturas das colunas
-    let mapped_records_and_columns = manipulate_csv_data(remaining_records, headers, first_data_row_types.clone());
+    let mapped_records_and_columns = manipulate_csv_data(remaining_records, &headers, first_data_row_types.clone());
+    //println!("mapped_records_and_columns: {:?}", mapped_records_and_columns);
 
     // 1 - criar cada coluna em uma tabela nova
     let mut new_table: Table = Table::new("new_table".to_string());
 
     // esse for loop é para construir as colunas Column
+    let mut count = 0;
     for (column_name, column_dtype) in &first_data_row_types {
-            let mut count = 0;
             let new_column = Column {
                 index: count,
                 name: column_name.clone(),
@@ -217,39 +210,34 @@ fn load_csv_data(filename: &str) -> Result<HashMap<String, ColumnDataType>, Box<
                 }
             };
             new_table.cols.push(new_column);
+            count += 1;
     }
 
     // passo 2: preencher os valores, provavelmente terá que ser dentro do for loop
+    for (i, column) in new_table.cols.iter_mut().enumerate() {
+       if column.name.eq(&headers[i].to_lowercase()) {
+        // tenho que pegar a tupla com o id desse header e iterar
+        //(row, col, column name, column value, column dtype)
+        for (_row, _col_index, col_name, col_value, col_dtype) in &mapped_records_and_columns {
+            if col_name.eq(&column.name.to_string()) {
+                let data_to_insert: ColumnData = match col_dtype {
+                    ColumnDataType::Integer(_i) => ColumnData::Integer(vec![col_value.parse::<i64>().unwrap()]),
+                    ColumnDataType::Float(_f) => ColumnData::Float(vec![col_value.parse::<f64>().unwrap()]),
+                    ColumnDataType::String(_s) => ColumnData::String(vec![col_value.to_string()]),
+                    ColumnDataType::Boolean(_b) => ColumnData::Boolean(vec![col_value.parse::<bool>().unwrap()]),
+                    _ => ColumnData::String(vec!["NULL".to_string()]),
+                };
+                //println!("data_to_insert: {:?}", data_to_insert);
+               column.data = data_to_insert;
+            } else {
+                continue;
+            }
+        }
+       }
+    }
 
     println!("===================== Aqui é a construção da tabela =====================");
     println!("new_table: {:?}", new_table);
-    // a partir desse ponto, temos os headers e os registros restantes. qual o próximo passo?
-    /*
-        bom, posso pegar a lógica atual da main (que cria a tabela vazia, com as colunas do tipo certo) e preencher o dados. O problema é que sendo um hashmap, a ordem
-        é aleatória.
-        mas eu posso procurar pelo nome da coluna...
-        melhor criar a coluna e já preencher com o dado. é isso
-    */
-
-
-    /*for (column_name, column_dtype) in &first_data_row_types {
-
-        if let ColumnDataType::Integer(_i) = column_dtype {
-            //let new_column = Column {
-             //   name: column_name.clone(),
-            //    data_type: "i64".to_string(),
-            //    data: ColumnData::Integer(Vec::<i64>::new())
-            //};
-            // 2 - preencher o vetor dos dados
-            //if let ColumnDataType::Integer(vec_ref) = &mut new_column.data {
-            //    vec_ref.push(colu)
-            //    new_table.cols.push(new_column);
-            //}
-            // aqui que preciso acessar os registros mapeados em tuplas 
-        }
-    }*/
-
-    //println!("first_data_row_types: {:?}", first_data_row_types);
     Ok(first_data_row_types)
 }
 
@@ -292,128 +280,53 @@ fn infer_column_data_type(row: &str) -> ColumnDataType {
 
 
 // manipulando o csv (headers em uma estrutura e o restante em outra)
-fn manipulate_csv_data(remaining_records: Vec<csv::StringRecord>, headers: csv::StringRecord, column_datatypes: HashMap<String, ColumnDataType>) -> 
-Vec<(i32, String, String, ColumnDataType)> {
-    let mut mapped_headers_to_row_number: HashMap<i32, csv::StringRecord> = HashMap::new();
+fn manipulate_csv_data(remaining_records: Vec<csv::StringRecord>, headers: &csv::StringRecord, column_datatypes: HashMap<String, ColumnDataType>) -> 
+Vec<(i32, usize, String, String, ColumnDataType)> {
+    let mut mapped_records_to_row_number: HashMap<i32, csv::StringRecord> = HashMap::new();
+    let mut mapped_headers_to_row_number: HashMap<i32, &str> = HashMap::new();
     let mut row_num: i32 = 0;
+    let mut col_num: i32 = 0;
 
-    // (key, column name, column value, column dtype)
-    let mut tuple_vec: Vec<(i32, String, String, ColumnDataType)> = Vec::new();
+    // (row, col, column name, column value, column dtype)
+    let mut tuple_vec: Vec<(i32, usize, String, String, ColumnDataType)> = Vec::new();
 
+    // aqui é o mapeamento dos registros (linhas) para um índice row_num
     for record in remaining_records {
-        mapped_headers_to_row_number.insert(row_num, record);
+        mapped_records_to_row_number.insert(row_num, record);
         row_num+=1;
     }
 
+    // mapeamento dos headers (colunas) para um índice col_num
+    for header in headers.iter() {
+        mapped_headers_to_row_number.insert(col_num, header);
+        col_num += 1;
+    }
+
     // criando as tuplas dos dados, inserindo NULL para o tipo de dado da coluna
-    for (key, value) in &mapped_headers_to_row_number {
+    for (key, value) in &mapped_records_to_row_number {
         for (i, item) in value.iter().enumerate() {
-            let data_to_insert: (i32, String, String, ColumnDataType) = (*key, headers[i].to_string(), item.to_string(), ColumnDataType::Null);
-            //println!("data to insert: {:?}", data_to_insert);
+            // usize value is the column index, so index 0 0 means "first line, first column" and so on
+            let data_to_insert: (i32, usize, String, String, ColumnDataType) = (*key, i, headers[i].to_string(), item.to_string(), ColumnDataType::Null);
             tuple_vec.push(data_to_insert);
         }
     }
 
 
+
+
     // inserindo o tipo correto de dados
-    for (_key, column_name, column_value, column_dtype) in &mut tuple_vec {
-        /*for (name, dtype) in &column_datatypes {
-            // se o nome da coluna dentro da tupla for igual ao nome da coluna do hashmap, então pega o columndatatype do hashmap e insere na tuple
-            if name.eq(column_name) {
-                *column_dtype = dtype.clone();
-                //println!("column_dtype: {:?}", column_dtype);
-            }
-            
-        }*/
+    for (_key, _, column_name, column_value, column_dtype) in &mut tuple_vec {
         if let Some(dtype) = column_datatypes.get(column_name) {
             *column_dtype = dtype.clone();
-            //update_column_dtype_variant(column_name.to_string());
-            //println!("column_dtype: {:?}", column_dtype);
         }
     }
 
     //println!("tuple_vec: {:?}", tuple_vec);
-
     tuple_vec
 
 }
 
 
-// processo reverso da inferencia de tipo: quero extrair qual é o tipo da coluna para poder criar o meu vetor desse tipo extraido.
-// porém acho que terei que usar um tipo genérico, pois eu não sei qual tipo irei retornar, só depois de avaliar.
-/* fn extract_column_data_type<T>(column: ColumnDataType) -> &T {
-    if let ColumnDataType::Integer(i) = column {
-        return i;
-    }
-} 
-*/
-
-// criar a tabela a partir do hashmap
-/* 
-fn build_table_structure<T>(table_data: HashMap<String, ColumnDataType>, data_type: T) {
-    let table: Table<T> = Table::new(); 
-    let mut column_names = Vec::<String>::new();
-    let mut column_types = Vec::<&ColumnDataType>::new();
-
-    for (tname, dtype) in table_data {
-        //let data_type = dtype;
-
-        // criando a coluna de dados
-        if let ColumnDataType::Integer(i) = data_type {
-            println!("{:?} is integer and it comes from column {:?}", i, tname);
-            
-            table.cols.push(Column { name: tname.clone(), data_type: "Int".to_string(), data: });
-            /*let column = Column {
-                name: tname.clone(),
-                data_type: "Int".to_string(),
-                data: Vec::<i64>::new()
-            };*/
-        }
-
-        if let ColumnDataType::Float(f) = data_type {
-            println!("{:?} is float and it comes from column {:?}", f, &tname);
-        }
-
-        if let ColumnDataType::String(ref s) = data_type {
-            println!("{:?} is string and it comes from column {:?}", s, &tname);
-        }
-
-        if let ColumnDataType::Boolean(b) = data_type {
-            println!("{:?} is boolean and it comes from column {:?}", b, &tname);
-        }
-
-    } */
-    
-    /*
-    for row in table_data {
-        //println!("row from build_table_structure: {:?}", row);
-        //column_names.push(row.1.0.to_string());
-        //column_types.push(row.1.1);
-        let column_data_type = row.1;
-
-        let new_column = Column{
-            name: row.0.to_string(),
-            data_type: row.1,
-            data: Vec::<ColumnDataType>::new()
-        };
-
-        table.cols.push(new_column);
-    }
-    
-} */
 
 
-// criar um vector a partir do ColumnDataType 
-/*
-fn build_vector_from_column_data_type<T>(data_type: ColumnDataType) -> Vec<T> {
 
-    let default_return_value = Vec::<String>::new();
-    if data_type.eq(ColumnDataType::String()) {
-        println!("ok?");
-        return Vec::<String>::new();
-    }
-
-    default_return_value
-}
-
-*/
