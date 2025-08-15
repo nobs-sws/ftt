@@ -3,3 +3,4 @@ id,name,age,city,is_valid
 2,Bob,24,London,true
 3,Charlie,35,Paris,false
 4,Daniel,28,USA,false
+5,Eduard,40,Ireland,true

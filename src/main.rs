@@ -1,4 +1,4 @@
-use std::{collections::HashMap, iter, vec};
+use std::{array, collections::HashMap, iter, vec};
 
 use serde::Deserialize;
 
@@ -20,6 +20,28 @@ enum ColumnData {
     String(Vec<String>),
     Boolean(Vec<bool>)
 }
+
+impl ColumnData {
+    // A helper method to push data based on its type
+    fn push_data(&mut self, value: &str) -> Result<(), Box<dyn std::error::Error>> {
+        match self {
+            ColumnData::Integer(vec) => {
+                vec.push(value.parse::<i64>()?);
+            }
+            ColumnData::Float(vec) => {
+                vec.push(value.parse::<f64>()?);
+            }
+            ColumnData::String(vec) => {
+                vec.push(value.to_string());
+            }
+            ColumnData::Boolean(vec) => {
+                vec.push(value.parse::<bool>()?);
+            }
+        }
+        Ok(())
+    }
+}
+
 
 impl ToString for ColumnDataType {
     fn to_string(&self) -> String {
@@ -60,93 +82,132 @@ struct Column {
 
 fn main() {
     let filepath = "/home/pelegolas/dev/rust/ftt/src/data/data_basic.csv";
-    //let data = read_file_serde(filepath);
 
-    /* temos os dados do CSV em um vetor de structs, e agora?
-     "rodar o modelo" significa executar transformações nos dados
-     então eu preciso:
-        - iterar sobre todos os rows
-        - aplicar a lógica em cada um
-        - criar os novos dados
-
-    vamos do básico. primeiro vamos selecionar apenas alguns campos específicos como transformação
-
-    */
-
-    // simulação de um arquivo de modelo sql. em breve precisarei de um sql parser
-    //let sql_command = "SELECT id, name, age FROM data_basic;";
-    //identify_sql_command_columns(sql_command.to_string());
-    
-
-    /*match load_csv_data(filepath) {
+    match v2_load_csv_data(filepath) {
         Ok(data) => {
             let mut data_headers: HashMap<String, ColumnDataType> = HashMap::new();
-            data_headers.clone_from(&data);
+            let mut data_columns_indexes: HashMap<String, i32> = HashMap::new();
+            let mut data_remaining_records: Vec<csv::StringRecord> = Vec::<csv::StringRecord>::new();
+            let mut mapped_remaining_records: HashMap<i32, csv::StringRecord> = HashMap::new();
+            data_headers.clone_from(&data.0);
+            mapped_remaining_records.clone_from(&data.1);
+            data_columns_indexes.clone_from(&data.2);
+            data_remaining_records.clone_from(&data.3);
+
+            
+            //data_headers.clone_from(&data);
+            let mut new_table: Table = Table::new("new_table".to_string());
+
+            // preciso botar um numero de identificacao para as colunas, não há outra maneira
+
+            for (column_name, dtype) in data_headers {
+                let col_index = data_columns_indexes.get(&column_name).unwrap();
+                let new_column = Column {
+                    index: *col_index,
+                    name: column_name,
+                    data_type: match &dtype {
+                        ColumnDataType::Integer(_ii) => "int".to_string(),
+                        ColumnDataType::Float(_ff) => "float".to_string(),
+                        ColumnDataType::String(_s) => "string".to_string(),
+                        ColumnDataType::Boolean(_bb) => "bool".to_string(),
+                        _ => "NULL".to_string(),                  
+                    },
+                    data: match dtype {
+                        ColumnDataType::Integer(_i) => ColumnData::Integer(Vec::<i64>::new()),
+                        ColumnDataType::Float(_f) => ColumnData::Float(Vec::<f64>::new()),
+                        ColumnDataType::String(_s) => ColumnData::String(Vec::<String>::new()),
+                        ColumnDataType::Boolean(_b) => ColumnData::Boolean(Vec::<bool>::new()),
+                        _ => ColumnData::String(Vec::<String>::new()),
+                    }
+                };
+                new_table.cols.push(new_column);
+            }
+
+            // reorganizando a tabela
+            new_table.cols.sort_by_key(|c| c.index);
+
+
+            println!("==================================================================");
+            for record in data_remaining_records {
+                for column in &mut new_table.cols {
+                    if let Some(value_str) = record.get(column.index.try_into().unwrap()) {
+                        let _ = column.data.push_data(value_str);
+                    } else {
+                        eprintln!("Warning: No value found for column '{}' at index {} in record {:?}", column.name, column.index, record);
+                    }
+                }
+            }
+  
+            let table_1 = new_table;
+            println!("{:?}", table_1);
+            
         },
         Err(e) => eprintln!("Erro: {}", e),
-    }*/
+    }
 
     let headers = ["id","name","age","city","is_valid"];
+    let record = vec!["1", "Alice", "30", "New York", "True"];
     let mut vec_of_vectors: Vec<Vec<&str>> = Vec::<Vec<&str>>::new();
-    for record in headers {
-        let vector_name = "vec".to_string() + "_" + record;
-        let array = record.chars();
-        let record = vec![record, "second element"]; 
-        vec_of_vectors.push(record);
-        println!("{:?}", array);
-    }
-    println!("{:?}", vec_of_vectors);
-
-}
-
-
-
-// para transformar os dados, eu passo o comando SQL como parametro e recebo um vetor de structs novamente, com os dados atualizados (transformados)
-/*
-    // vamos supor que ja temos o parser e que ja sabemos que precisamos selecionar colunas especificas. talvez fosse melhor guardar os dados do csv column-oriented.
-
-}
-*/
-
-// ja temos os dados em uma struct em formato colunar, ou seja, cada coluna tem o seu vetor de dados dentro da struct
-// agora, preciso criar uma função que receba o comando SQL (assumindo que o aprser já sabe o que precisa fazer) e aplique as transformações
-//fn transform_data(sql_command: String) -> Vec<MyRecord> {
-/*
-passos
-1- identificar as colunas do comando SQL. São as palavras entre o SELECT e o FROM, separadas por vírgula. Como fazer isso? Regex?
-passo 1 feito, está sub otimizado mas para um MVP está bom
-
-2 - 
-*/
-
-//}
-
-// retorna um vec<string> pois preciso enumerar/separar cada coluna
-fn identify_sql_command_columns(sql_command: String) -> Vec<String> {
-    let start_delimiter = "SELECT";
-    let end_delimiter = "FROM";
-
-    // cortar o comando sql em slices
-    let sliced_sql_command: Vec<&str> = sql_command.split(',').collect();
-    //println!("sliced_sql_command: {:?}", sliced_sql_command);
-    let v = sql_command.replace(start_delimiter, "");
-
-    // letter F from "FROM"
-    let end_delimiter_first_byte = v.find(end_delimiter).unwrap();
-    let v2 = &v[0..end_delimiter_first_byte];
-
-    let final_string: Vec<&str> = v2.split(",").collect();
-    let mut trimmed_final_string: Vec<String> = Vec::new();
-
-    // trimming each column name
-    for column in final_string {
-        let trimmed_column = column.trim();
-        trimmed_final_string.push(trimmed_column.to_string());
+    for header_item in headers {
+        let new_vec = vec![header_item]; 
+        vec_of_vectors.push(new_vec);
     }
 
-    trimmed_final_string
+    for (index, row) in record.iter().enumerate() {
+        let inner_vec = vec_of_vectors.get_mut(index).expect("Index out of bounds");
+        inner_vec.push(row);
+    }
+    //println!("after adding record: {:?}", vec_of_vectors);
+
 }
 
+
+// retornar apenas o hashmap com as colunas e seus tipos
+fn v2_load_csv_data(filename: &str) -> Result<(HashMap<String, ColumnDataType>, HashMap<i32, csv::StringRecord>, HashMap<String, i32>,Vec<csv::StringRecord> ),Box<dyn std::error::Error>> {
+//Result<HashMap<String, ColumnDataType>, Box<dyn std::error::Error>> {
+    let mut rdr = csv::Reader::from_path(filename).expect("No CSV file found!");
+
+    // getting the csv headers and creating a column struct for each one
+    let headers = rdr.headers()?.clone();
+
+    // pegando o iterador dos registros
+    let mut records_iter = rdr.records();
+    let mut first_data_row_types: HashMap<String, ColumnDataType> = HashMap::new();
+    let mut remaining_records: Vec<csv::StringRecord> = Vec::new();
+    // para mapear cada registro em sua posição
+    let mut mapped_remaining_records: HashMap<i32, csv::StringRecord> = HashMap::new();
+    // para mapear os nomes das colunas com um indice
+    let mut columns_indexes: HashMap<String, i32> = HashMap::new();
+
+    if let Some(first_record_result) = records_iter.next() {
+        let first_record: csv::StringRecord = first_record_result?;
+
+        for (i, field) in first_record.iter().enumerate() {
+            if let Some(header_name) = headers.get(i) {
+                let inferred_type_for_column = infer_column_data_type(field);
+                first_data_row_types.insert(header_name.to_string(), inferred_type_for_column);
+                columns_indexes.insert(header_name.to_string(), i as i32);
+            }
+        }
+        remaining_records.push(first_record);
+
+    } else {
+        return Ok((HashMap::new(), HashMap::new(), HashMap::new(), Vec::<csv::StringRecord>::new()));
+    }
+
+    for record_result in records_iter {
+        let record: csv::StringRecord = record_result?;
+        remaining_records.push(record);
+    }
+
+    // remaining_records possui os registros na ordem correta, agora é só colocar um indice para cada um
+    for (i, record) in remaining_records.iter().enumerate() {
+        mapped_remaining_records.insert(i as i32, record.clone());
+    }
+
+    Ok((first_data_row_types, mapped_remaining_records, columns_indexes, remaining_records))
+
+}
 
 // ler o arquivo CSV e retornar a nova struct Table com os dados
 fn load_csv_data(filename: &str) -> Result<HashMap<String, ColumnDataType>, Box<dyn std::error::Error>> {
@@ -169,8 +230,8 @@ fn load_csv_data(filename: &str) -> Result<HashMap<String, ColumnDataType>, Box<
                 first_data_row_types.insert(header_name.to_string(), inferred_type_for_column);
             }
         }
-
         remaining_records.push(first_record);
+
 
     } else {
         return Ok(HashMap::new());
@@ -240,17 +301,6 @@ fn load_csv_data(filename: &str) -> Result<HashMap<String, ColumnDataType>, Box<
     println!("new_table: {:?}", new_table);
     Ok(first_data_row_types)
 }
-
-// fazer o parsing de valor de acordo com o ColumnDataType
-/*fn parse_column_value(tuple_value: ColumnDataType) -> ColumnData {
-    match tuple_value {
-        ColumnDataType::Integer(i) => ColumnData::Integer(i),
-        ColumnDataType::Float(f) => ColumnData::Float(f),
-        ColumnDataType::String(s) => ColumnData::String(s),
-        ColumnDataType::Boolean(b) => ColumnData::Boolean(b),
-        _ => ColumnData::String("NULL".to_string()),        
-    }
-}*/
 
 // inferencia de tipo de dado da coluna
 fn infer_column_data_type(row: &str) -> ColumnDataType {
