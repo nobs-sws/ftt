@@ -1,9 +1,9 @@
-use std::{array, collections::HashMap, iter, vec};
+use std::{array, collections::HashMap, fs::File, io::{BufWriter, Write}, iter, vec};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // tipo de dado para a coluna
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 enum ColumnDataType {
     Integer(i64),
     Float(f64),
@@ -13,7 +13,7 @@ enum ColumnDataType {
 }
 
 // struct para os vetores de dados na coluna
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 enum ColumnData {
     Integer(Vec<i64>),
     Float(Vec<f64>),
@@ -55,7 +55,7 @@ impl ToString for ColumnDataType {
     }
 }
 // Table struct para conter o vetor de colunas
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Table {
     name: String,
     cols: Vec<Column>
@@ -71,7 +71,7 @@ impl Table {
 }
 // ----------------- column structs ------------------------
 // Column struct
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Column {
     index: i32,
     name: String,
@@ -138,27 +138,25 @@ fn main() {
                 }
             }
   
-            let table_1 = new_table;
-            println!("{:?}", table_1);
+            //println!("{:?}", new_table);
+            create_table_json(new_table);
             
         },
         Err(e) => eprintln!("Erro: {}", e),
     }
 
-    let headers = ["id","name","age","city","is_valid"];
-    let record = vec!["1", "Alice", "30", "New York", "True"];
-    let mut vec_of_vectors: Vec<Vec<&str>> = Vec::<Vec<&str>>::new();
-    for header_item in headers {
-        let new_vec = vec![header_item]; 
-        vec_of_vectors.push(new_vec);
-    }
+}
 
-    for (index, row) in record.iter().enumerate() {
-        let inner_vec = vec_of_vectors.get_mut(index).expect("Index out of bounds");
-        inner_vec.push(row);
-    }
-    //println!("after adding record: {:?}", vec_of_vectors);
-
+// criar arquivo json com tabela
+fn create_table_json(table: Table) {
+    // Box<dyn std::error::Error>
+    let table_json = serde_json::to_string(&table).unwrap();
+    // write to file
+    let mut file = File::create_new("/home/pelegolas/dev/rust/ftt/src/tables_folder/output.json").expect("could not create file");
+    file.write_all(table_json.as_bytes()).unwrap();
+    
+    //println!("serialized table: {:?}", table_json);
+    //Ok(())
 }
 
 
