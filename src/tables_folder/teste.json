@@ -1,0 +1,47 @@
+{
+  "name": "teste",
+  "cols": [
+    {
+      "index": 0,
+      "name": "id",
+      "data_type": "int",
+      "data": {
+        "Integer": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "index": 1,
+      "name": "name",
+      "data_type": "string",
+      "data": {
+        "String": [
+          "Alice",
+          "Bob",
+          "Charlie",
+          "Daniel",
+          "Eduard"
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "name": "age",
+      "data_type": "int",
+      "data": {
+        "Integer": [
+          30,
+          24,
+          35,
+          28,
+          40
+        ]
+      }
+    }
+  ]
+}

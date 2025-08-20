@@ -1,6 +1,23 @@
-use std::{array, collections::HashMap, fs::File, io::{BufWriter, Write}, iter, vec};
-
+use std::path::Path;
+use std::{collections::HashMap, io::BufReader};
+use std::fs::File;
+use std::io::Write;
 use serde::{Deserialize, Serialize};
+
+mod query_engine;
+mod interface;
+
+use clap::Parser;
+use serde_json::to_string;
+
+#[derive(Parser)]
+struct Cli {
+    command: String,
+    flag: String,
+    // path to sql file
+    path: std::path::PathBuf
+}
+
 
 // tipo de dado para a coluna
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -13,7 +30,7 @@ enum ColumnDataType {
 }
 
 // struct para os vetores de dados na coluna
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 enum ColumnData {
     Integer(Vec<i64>),
     Float(Vec<f64>),
@@ -71,7 +88,7 @@ impl Table {
 }
 // ----------------- column structs ------------------------
 // Column struct
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Column {
     index: i32,
     name: String,
@@ -79,9 +96,31 @@ struct Column {
     data: ColumnData,
 }
 
+/*
+como é o uso da ferramenta?
+
+ftt run --select model -> é o comando para executar a transformação que tem no modelo sql
+
+CLI
+- lê os argumentos: action (run), flag (--select), path_to_sql_model (model)
+para fins de teste, iremos usar apenas o exemplo acima. Porém, melhor já ir preparando para os outros casos
+- CLI manda para a engine o que deve ser feito
+- engine lê o SQL do modelo e vê a transformação
+- engine manda para o DATA_TRANSFORMER para gerar a nova tabela transformada
+- um JSON com a nova tabela é gerado, dentro da pasta tables_transformed
+
+*/
 
 fn main() {
+    let args = Cli::parse();
+    // depois da CLI ler os argumentos, verificar primeiro a ação
+    let run_action = String::from("run");
+
+
+
     let filepath = "/home/pelegolas/dev/rust/ftt/src/data/data_basic.csv";
+    let table_path = "/home/pelegolas/dev/rust/ftt/src/tables_folder/output.json";
+    let transformed_table_path = "/home/pelegolas/dev/rust/ftt/src/tables_folder/";
 
     match v2_load_csv_data(filepath) {
         Ok(data) => {
@@ -127,7 +166,6 @@ fn main() {
             new_table.cols.sort_by_key(|c| c.index);
 
 
-            println!("==================================================================");
             for record in data_remaining_records {
                 for column in &mut new_table.cols {
                     if let Some(value_str) = record.get(column.index.try_into().unwrap()) {
@@ -137,26 +175,105 @@ fn main() {
                     }
                 }
             }
-  
-            //println!("{:?}", new_table);
-            create_table_json(new_table);
-            
+
+            // nesse ponto a tabela já está mapeada e podemos seguir com o fluxo de leitura do arquivo SQL
+
+            if args.command.eq(&run_action) {
+                // sabemos a ação. depois adiciono o error handling para os outros campos
+                // leitura do conteúdo do arquivo sql mandado
+                let sql_file_contents = std::fs::read_to_string(&args.path).expect("something wrong");
+
+                // agora mando isso para o query parser identificar as colunas para transformação
+                let model_columns_to_transform = query_engine::identify_sql_command_columns(sql_file_contents);
+
+                // as colunas foram corretamente identificadas! exemplo sendo usado: ["id", "age", "name"]
+                // agora eu jogo esse vetor para a função de transformação. Antes disso, os dados da tabela em que o cósigo SQL está executando precisa já estar mapeado. Senão
+                // não há como eu me basear. Isso é um outro processo que terá de ser feito à parte no futuro. Por agora, vamos assumir que já temos as colunas e os dados
+                // mapeados.
+
+                let deserialized_table = read_table_from_file(table_path).unwrap();
+
+                let transformed_table = transform_columns(model_columns_to_transform, data_columns_indexes, deserialized_table);
+                
+                // criando o json com a tabela transformada
+                create_table_json(&transformed_table, &transformed_table.name, transformed_table_path.to_string());
+            } else {
+                println!("enter a valid action");
+            }
+
+
+
+
+            // ================================= PHASE 2: SQL ENGINE ==================================================
+            /*
+            // getting the columns that will be transformed
+            let sql_command = "SELECT id, age FROM data_basic;";
+            let sql_command_columns = query_engine::identify_sql_command_columns(sql_command.to_string());
+            //println!("{:?}", sql_command_columns);
+
+
+            // TODO agora preciso verificar: por acaso a coluna tem alguma modificação? tipo um SUM ou AVG? para fins de testes, vamos fazer sem primeiro
+
+            // pegar a tabela pelo arquivo json e fazer um DEserialize em struct rust. ideia para o futuro: manter essas structs em um buffer temporario
+            let des_table = read_table_from_file(table_path).unwrap();
+
+            // passar o array com as colunas do SELECT statement e realizar a transformação
+            let transformed_table = transform_columns(sql_command_columns, data_columns_indexes, des_table);
+
+            // creating the json with transformed table
+            //create_table_json(&transformed_table, &transformed_table.name, transformed_table_path.to_string());
+            */
         },
         Err(e) => eprintln!("Erro: {}", e),
     }
 
 }
 
-// criar arquivo json com tabela
-fn create_table_json(table: Table) {
-    // Box<dyn std::error::Error>
-    let table_json = serde_json::to_string(&table).unwrap();
-    // write to file
-    let mut file = File::create_new("/home/pelegolas/dev/rust/ftt/src/tables_folder/output.json").expect("could not create file");
-    file.write_all(table_json.as_bytes()).unwrap();
+
+fn transform_columns(column_list: Vec<String>, columns_indexes: HashMap<String, i32>, table_to_transform: Table) -> Table {
+    let mut transformed_table = Table::new("teste".to_string());
+    let table_copy: Table = table_to_transform;
+
+    // pegando os indices das colunas que estão no comando sql
+    let mut col_indexes = Vec::new();
+    for column_name in &column_list {
+        let col_index = *columns_indexes.get(column_name).unwrap();
+        col_indexes.push(col_index);
+    }
+
+    for index in col_indexes {
+        let column_to_add = table_copy.cols[index as usize].clone();
+        transformed_table.cols.push(column_to_add);
+    }
     
-    //println!("serialized table: {:?}", table_json);
-    //Ok(())
+    transformed_table.cols.sort_by_key(|c| c.index);
+
+    transformed_table
+}
+
+
+
+// reads json table data to a table struct
+fn read_table_from_file<P: AsRef<Path>>(path: P) -> Result<Table, Box<dyn std::error::Error>> {
+    // Open the file in read-only mode with buffer.
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+
+    let t = serde_json::from_reader(reader)?;
+
+    Ok(t)
+}
+
+// criar arquivo json com tabela
+fn create_table_json(table_to_transform: &Table, table_name: &str, table_path: String) {
+    let table_json = serde_json::to_string_pretty(&table_to_transform).unwrap();
+    let path = table_path + "/" + table_name + ".json";
+    // write to file
+    match File::create_new(path) {
+        Ok(mut file_created) => file_created.write_all(table_json.as_bytes()).unwrap(),
+        Err(file_error) => eprintln!("error: {:?}", file_error)
+    };
+
 }
 
 
@@ -207,99 +324,6 @@ fn v2_load_csv_data(filename: &str) -> Result<(HashMap<String, ColumnDataType>, 
 
 }
 
-// ler o arquivo CSV e retornar a nova struct Table com os dados
-fn load_csv_data(filename: &str) -> Result<HashMap<String, ColumnDataType>, Box<dyn std::error::Error>> {
-    let mut rdr = csv::Reader::from_path(filename).expect("No CSV file found!");
-
-    // getting the csv headers and creating a column struct for each one
-    let headers = rdr.headers()?.clone();
-
-    // pegando o iterador dos registros
-    let mut records_iter = rdr.records();
-    let mut first_data_row_types: HashMap<String, ColumnDataType> = HashMap::new();
-    let mut remaining_records: Vec<csv::StringRecord> = Vec::new();
-
-    if let Some(first_record_result) = records_iter.next() {
-        let first_record: csv::StringRecord = first_record_result?;
-
-        for (i, field) in first_record.iter().enumerate() {
-            if let Some(header_name) = headers.get(i) {
-                let inferred_type_for_column = infer_column_data_type(field);
-                first_data_row_types.insert(header_name.to_string(), inferred_type_for_column);
-            }
-        }
-        remaining_records.push(first_record);
-
-
-    } else {
-        return Ok(HashMap::new());
-    }
-
-    for record_result in records_iter {
-        let record: csv::StringRecord = record_result?;
-        remaining_records.push(record);
-    }
-
-    // mapped_records_and_columns já tem todas as informações dos registros, só preciso agora montar as estruturas das colunas
-    let mapped_records_and_columns = manipulate_csv_data(remaining_records, &headers, first_data_row_types.clone());
-    //println!("mapped_records_and_columns: {:?}", mapped_records_and_columns);
-
-    // 1 - criar cada coluna em uma tabela nova
-    let mut new_table: Table = Table::new("new_table".to_string());
-
-    // esse for loop é para construir as colunas Column
-    let mut count = 0;
-    for (column_name, column_dtype) in &first_data_row_types {
-            let new_column = Column {
-                index: count,
-                name: column_name.clone(),
-                data_type: match &column_dtype {
-                    ColumnDataType::Integer(_ii) => "int".to_string(),
-                    ColumnDataType::Float(_ff) => "float".to_string(),
-                    ColumnDataType::String(_s) => "string".to_string(),
-                    ColumnDataType::Boolean(_bb) => "bool".to_string(),
-                    _ => "NULL".to_string(),                  
-                },
-                data: match column_dtype {
-                    ColumnDataType::Integer(_i) => ColumnData::Integer(Vec::<i64>::new()),
-                    ColumnDataType::Float(_f) => ColumnData::Float(Vec::<f64>::new()),
-                    ColumnDataType::String(_s) => ColumnData::String(Vec::<String>::new()),
-                    ColumnDataType::Boolean(_b) => ColumnData::Boolean(Vec::<bool>::new()),
-                    _ => ColumnData::String(Vec::<String>::new()),
-                }
-            };
-            new_table.cols.push(new_column);
-            count += 1;
-    }
-
-    // passo 2: preencher os valores, provavelmente terá que ser dentro do for loop
-    for (i, column) in new_table.cols.iter_mut().enumerate() {
-       if column.name.eq(&headers[i].to_lowercase()) {
-        // tenho que pegar a tupla com o id desse header e iterar
-        //(row, col, column name, column value, column dtype)
-        for (_row, _col_index, col_name, col_value, col_dtype) in &mapped_records_and_columns {
-            if col_name.eq(&column.name.to_string()) {
-                let data_to_insert: ColumnData = match col_dtype {
-                    ColumnDataType::Integer(_i) => ColumnData::Integer(vec![col_value.parse::<i64>().unwrap()]),
-                    ColumnDataType::Float(_f) => ColumnData::Float(vec![col_value.parse::<f64>().unwrap()]),
-                    ColumnDataType::String(_s) => ColumnData::String(vec![col_value.to_string()]),
-                    ColumnDataType::Boolean(_b) => ColumnData::Boolean(vec![col_value.parse::<bool>().unwrap()]),
-                    _ => ColumnData::String(vec!["NULL".to_string()]),
-                };
-                //println!("data_to_insert: {:?}", data_to_insert);
-               column.data = data_to_insert;
-            } else {
-                continue;
-            }
-        }
-       }
-    }
-
-    println!("===================== Aqui é a construção da tabela =====================");
-    println!("new_table: {:?}", new_table);
-    Ok(first_data_row_types)
-}
-
 // inferencia de tipo de dado da coluna
 fn infer_column_data_type(row: &str) -> ColumnDataType {
 
@@ -327,52 +351,6 @@ fn infer_column_data_type(row: &str) -> ColumnDataType {
 }
 
 
-// manipulando o csv (headers em uma estrutura e o restante em outra)
-fn manipulate_csv_data(remaining_records: Vec<csv::StringRecord>, headers: &csv::StringRecord, column_datatypes: HashMap<String, ColumnDataType>) -> 
-Vec<(i32, usize, String, String, ColumnDataType)> {
-    let mut mapped_records_to_row_number: HashMap<i32, csv::StringRecord> = HashMap::new();
-    let mut mapped_headers_to_row_number: HashMap<i32, &str> = HashMap::new();
-    let mut row_num: i32 = 0;
-    let mut col_num: i32 = 0;
-
-    // (row, col, column name, column value, column dtype)
-    let mut tuple_vec: Vec<(i32, usize, String, String, ColumnDataType)> = Vec::new();
-
-    // aqui é o mapeamento dos registros (linhas) para um índice row_num
-    for record in remaining_records {
-        mapped_records_to_row_number.insert(row_num, record);
-        row_num+=1;
-    }
-
-    // mapeamento dos headers (colunas) para um índice col_num
-    for header in headers.iter() {
-        mapped_headers_to_row_number.insert(col_num, header);
-        col_num += 1;
-    }
-
-    // criando as tuplas dos dados, inserindo NULL para o tipo de dado da coluna
-    for (key, value) in &mapped_records_to_row_number {
-        for (i, item) in value.iter().enumerate() {
-            // usize value is the column index, so index 0 0 means "first line, first column" and so on
-            let data_to_insert: (i32, usize, String, String, ColumnDataType) = (*key, i, headers[i].to_string(), item.to_string(), ColumnDataType::Null);
-            tuple_vec.push(data_to_insert);
-        }
-    }
-
-
-
-
-    // inserindo o tipo correto de dados
-    for (_key, _, column_name, column_value, column_dtype) in &mut tuple_vec {
-        if let Some(dtype) = column_datatypes.get(column_name) {
-            *column_dtype = dtype.clone();
-        }
-    }
-
-    //println!("tuple_vec: {:?}", tuple_vec);
-    tuple_vec
-
-}
 
 
 
