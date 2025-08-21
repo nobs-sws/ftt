@@ -1,5 +1,5 @@
 {
-  "name": "transformed_table",
+  "name": "data_basic_transformed",
   "cols": [
     {
       "index": 0,
@@ -16,20 +16,6 @@
       }
     },
     {
-      "index": 2,
-      "name": "age",
-      "data_type": "int",
-      "data": {
-        "Integer": [
-          30,
-          24,
-          35,
-          28,
-          40
-        ]
-      }
-    },
-    {
       "index": 1,
       "name": "name",
       "data_type": "string",
@@ -40,6 +26,20 @@
           "Charlie",
           "Daniel",
           "Eduard"
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "name": "age",
+      "data_type": "int",
+      "data": {
+        "Integer": [
+          30,
+          24,
+          35,
+          28,
+          40
         ]
       }
     }

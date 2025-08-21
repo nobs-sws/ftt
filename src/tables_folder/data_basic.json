@@ -1,5 +1,5 @@
 {
-  "name": "teste",
+  "name": "data_basic",
   "cols": [
     {
       "index": 0,
@@ -40,6 +40,34 @@
           35,
           28,
           40
+        ]
+      }
+    },
+    {
+      "index": 3,
+      "name": "city",
+      "data_type": "string",
+      "data": {
+        "String": [
+          "New York",
+          "London",
+          "Paris",
+          "USA",
+          "Ireland"
+        ]
+      }
+    },
+    {
+      "index": 4,
+      "name": "is_valid",
+      "data_type": "bool",
+      "data": {
+        "Boolean": [
+          true,
+          true,
+          false,
+          false,
+          true
         ]
       }
     }

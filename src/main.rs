@@ -72,16 +72,16 @@ impl ToString for ColumnDataType {
     }
 }
 // Table struct para conter o vetor de colunas
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Table {
     name: String,
     cols: Vec<Column>
 }
 
 impl Table {
-    fn new(name: String) -> Self {
+    fn new(name: &String) -> Self {
         Table {
-            name,
+            name: name.to_string(),
             cols: Vec::new()
         }
     }
@@ -115,124 +115,32 @@ fn main() {
     let args = Cli::parse();
     // depois da CLI ler os argumentos, verificar primeiro a ação
     let run_action = String::from("run");
+    // removendo ".sql" do nome do modelo, para criar o json e a tabela com o nome do arquivo SQL
+    let table_name = args.path.to_str().unwrap().replace(".sql", "").replace("models/", "");
 
-
-
-    let filepath = "/home/pelegolas/dev/rust/ftt/src/data/data_basic.csv";
-    let table_path = "/home/pelegolas/dev/rust/ftt/src/tables_folder/output.json";
-    let transformed_table_path = "/home/pelegolas/dev/rust/ftt/src/tables_folder/";
-
-    match v2_load_csv_data(filepath) {
-        Ok(data) => {
-            let mut data_headers: HashMap<String, ColumnDataType> = HashMap::new();
-            let mut data_columns_indexes: HashMap<String, i32> = HashMap::new();
-            let mut data_remaining_records: Vec<csv::StringRecord> = Vec::<csv::StringRecord>::new();
-            let mut mapped_remaining_records: HashMap<i32, csv::StringRecord> = HashMap::new();
-            data_headers.clone_from(&data.0);
-            mapped_remaining_records.clone_from(&data.1);
-            data_columns_indexes.clone_from(&data.2);
-            data_remaining_records.clone_from(&data.3);
-
-            
-            //data_headers.clone_from(&data);
-            let mut new_table: Table = Table::new("new_table".to_string());
-
-            // preciso botar um numero de identificacao para as colunas, não há outra maneira
-
-            for (column_name, dtype) in data_headers {
-                let col_index = data_columns_indexes.get(&column_name).unwrap();
-                let new_column = Column {
-                    index: *col_index,
-                    name: column_name,
-                    data_type: match &dtype {
-                        ColumnDataType::Integer(_ii) => "int".to_string(),
-                        ColumnDataType::Float(_ff) => "float".to_string(),
-                        ColumnDataType::String(_s) => "string".to_string(),
-                        ColumnDataType::Boolean(_bb) => "bool".to_string(),
-                        _ => "NULL".to_string(),                  
-                    },
-                    data: match dtype {
-                        ColumnDataType::Integer(_i) => ColumnData::Integer(Vec::<i64>::new()),
-                        ColumnDataType::Float(_f) => ColumnData::Float(Vec::<f64>::new()),
-                        ColumnDataType::String(_s) => ColumnData::String(Vec::<String>::new()),
-                        ColumnDataType::Boolean(_b) => ColumnData::Boolean(Vec::<bool>::new()),
-                        _ => ColumnData::String(Vec::<String>::new()),
-                    }
-                };
-                new_table.cols.push(new_column);
-            }
-
-            // reorganizando a tabela
-            new_table.cols.sort_by_key(|c| c.index);
-
-
-            for record in data_remaining_records {
-                for column in &mut new_table.cols {
-                    if let Some(value_str) = record.get(column.index.try_into().unwrap()) {
-                        let _ = column.data.push_data(value_str);
-                    } else {
-                        eprintln!("Warning: No value found for column '{}' at index {} in record {:?}", column.name, column.index, record);
-                    }
-                }
-            }
-
-            // nesse ponto a tabela já está mapeada e podemos seguir com o fluxo de leitura do arquivo SQL
-
-            if args.command.eq(&run_action) {
-                // sabemos a ação. depois adiciono o error handling para os outros campos
-                // leitura do conteúdo do arquivo sql mandado
-                let sql_file_contents = std::fs::read_to_string(&args.path).expect("something wrong");
-
-                // agora mando isso para o query parser identificar as colunas para transformação
-                let model_columns_to_transform = query_engine::identify_sql_command_columns(sql_file_contents);
-
-                // as colunas foram corretamente identificadas! exemplo sendo usado: ["id", "age", "name"]
-                // agora eu jogo esse vetor para a função de transformação. Antes disso, os dados da tabela em que o cósigo SQL está executando precisa já estar mapeado. Senão
-                // não há como eu me basear. Isso é um outro processo que terá de ser feito à parte no futuro. Por agora, vamos assumir que já temos as colunas e os dados
-                // mapeados.
-
-                let deserialized_table = read_table_from_file(table_path).unwrap();
-
-                let transformed_table = transform_columns(model_columns_to_transform, data_columns_indexes, deserialized_table);
-                
-                // criando o json com a tabela transformada
-                create_table_json(&transformed_table, &transformed_table.name, transformed_table_path.to_string());
-            } else {
-                println!("enter a valid action");
-            }
-
-
-
-
-            // ================================= PHASE 2: SQL ENGINE ==================================================
-            /*
-            // getting the columns that will be transformed
-            let sql_command = "SELECT id, age FROM data_basic;";
-            let sql_command_columns = query_engine::identify_sql_command_columns(sql_command.to_string());
-            //println!("{:?}", sql_command_columns);
-
-
-            // TODO agora preciso verificar: por acaso a coluna tem alguma modificação? tipo um SUM ou AVG? para fins de testes, vamos fazer sem primeiro
-
-            // pegar a tabela pelo arquivo json e fazer um DEserialize em struct rust. ideia para o futuro: manter essas structs em um buffer temporario
-            let des_table = read_table_from_file(table_path).unwrap();
-
-            // passar o array com as colunas do SELECT statement e realizar a transformação
-            let transformed_table = transform_columns(sql_command_columns, data_columns_indexes, des_table);
-
-            // creating the json with transformed table
-            //create_table_json(&transformed_table, &transformed_table.name, transformed_table_path.to_string());
-            */
-        },
-        Err(e) => eprintln!("Erro: {}", e),
+    // lendo os contents do arquivo sql
+    let sql_file_contents = std::fs::read_to_string(&args.path).unwrap();
+    println!("sql content: {:?}", sql_file_contents);
+    let macro_name = "{{ table('".to_owned() + &table_name + "') }}";
+    println!("{:?}", macro_name);
+    if sql_file_contents.contains(&macro_name) {
+        let temp_sql_contents = sql_file_contents.replace(&macro_name, &table_name);
+        println!("temp sql contents: {:?}", temp_sql_contents);
     }
+
+    // depois de substituir o nome da tabela da macro, salvar a nova query em um lugar temporario
+    // agora, em teoria, essa query deve ser jogada em um database e executada
 
 }
 
+// procura uma macro {{ table() }} e retorna o nome da tabela
+fn find_and_replace_macro() {}
+
 
 fn transform_columns(column_list: Vec<String>, columns_indexes: HashMap<String, i32>, table_to_transform: Table) -> Table {
-    let mut transformed_table = Table::new("teste".to_string());
-    let table_copy: Table = table_to_transform;
+    let table_copy: Table = table_to_transform.clone();
+    let name = &(table_to_transform.name.to_string() + "_transformed"); 
+    let mut transformed_table = Table::new(name);
 
     // pegando os indices das colunas que estão no comando sql
     let mut col_indexes = Vec::new();
@@ -265,9 +173,10 @@ fn read_table_from_file<P: AsRef<Path>>(path: P) -> Result<Table, Box<dyn std::e
 }
 
 // criar arquivo json com tabela
-fn create_table_json(table_to_transform: &Table, table_name: &str, table_path: String) {
+fn create_table_json(table_to_transform: &Table, table_name: &str, table_path: &String) {
     let table_json = serde_json::to_string_pretty(&table_to_transform).unwrap();
-    let path = table_path + "/" + table_name + ".json";
+    let path = table_path.to_owned() + table_name + ".json";
+    println!("creat_table_json path: {:?}", path);
     // write to file
     match File::create_new(path) {
         Ok(mut file_created) => file_created.write_all(table_json.as_bytes()).unwrap(),

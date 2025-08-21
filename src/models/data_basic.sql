@@ -3,5 +3,4 @@ SELECT
     age,
     name
 FROM
-    data_basics
-;
+    {{ table('data_basic') }}
