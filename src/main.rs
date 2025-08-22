@@ -130,6 +130,7 @@ fn main() {
 
     // depois de substituir o nome da tabela da macro, salvar a nova query em um lugar temporario
     // agora, em teoria, essa query deve ser jogada em um database e executada
+    //acho que preciso fazer um information schema para que as queries sejam executadas corretamente
 
 }
 
