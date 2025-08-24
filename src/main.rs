@@ -3,6 +3,7 @@ use std::{collections::HashMap, io::BufReader};
 use std::fs::File;
 use std::io::Write;
 use serde::{Deserialize, Serialize};
+use std::process::Command;
 
 mod query_engine;
 mod interface;
@@ -110,29 +111,87 @@ para fins de teste, iremos usar apenas o exemplo acima. Porém, melhor já ir pr
 - um JSON com a nova tabela é gerado, dentro da pasta tables_transformed
 
 */
-
 fn main() {
     let args = Cli::parse();
     // depois da CLI ler os argumentos, verificar primeiro a ação
     let run_action = String::from("run");
     // removendo ".sql" do nome do modelo, para criar o json e a tabela com o nome do arquivo SQL
     let table_name = args.path.to_str().unwrap().replace(".sql", "").replace("models/", "");
+    ftt_load(args.path);
 
     // lendo os contents do arquivo sql
-    let sql_file_contents = std::fs::read_to_string(&args.path).unwrap();
-    println!("sql content: {:?}", sql_file_contents);
-    let macro_name = "{{ table('".to_owned() + &table_name + "') }}";
-    println!("{:?}", macro_name);
-    if sql_file_contents.contains(&macro_name) {
-        let temp_sql_contents = sql_file_contents.replace(&macro_name, &table_name);
-        println!("temp sql contents: {:?}", temp_sql_contents);
-    }
 
     // depois de substituir o nome da tabela da macro, salvar a nova query em um lugar temporario
     // agora, em teoria, essa query deve ser jogada em um database e executada
+
     //acho que preciso fazer um information schema para que as queries sejam executadas corretamente
 
 }
+
+// cria a tabela no db a partir do csv
+fn ftt_load(csv_file_path: std::path::PathBuf) {
+    /*
+        passos para carregar um csv, fazr inferencia de schema, criar uma tabela com os nomes das colunas, e copiar os dados do csv
+        1 - ter um file format para o csv
+        2 - ter um stage para receber arquivos
+        3 - carregar o arquivo csv através do PUT
+        4 - criar a tabela esqueleto usando CREATE USING TEMPLATE
+        5 - fazer o COPY INTO com os dados
+     */
+
+
+    // caminho do arquivo que quero carregar
+    let path = csv_file_path.to_str().expect("not a file");
+    // pegando o nome do arquivo para ser o nome da tabela. TODO melhorar isso, muito hard-coded
+    let table_name = csv_file_path.to_str().unwrap().replace(".csv", "").replace("data/", "");
+
+
+    // vou criar todos os comandos para executar tudo de uma vez só no snowsql
+    // 1 - criar o file format padrão
+    let file_format = "ftt_csv_format".to_string();
+    let file_format_query = format!("CREATE FILE FORMAT IF NOT EXISTS {file_format} TYPE = csv PARSE_HEADER = TRUE;");
+    
+
+    // 2 - vou assumir, por enquanto, que o stage já existe
+    // 3 - carregar o arquivo através do put
+    let put_command = "put file://".to_owned() + path + " @FTT_DATA.FTT_TEST_DATA_SCHEMA.CSV_STAGE;";
+
+    // 4 - criar o esqueleto da tabela com CREATE USING TEMPLATE
+    let create_table = format!("CREATE TABLE FTT_DATA.FTT_TEST_DATA_SCHEMA.{table_name}
+    USING TEMPLATE (
+    SELECT ARRAY_AGG(OBJECT_CONSTRUCT(*))
+    WITHIN GROUP (ORDER BY order_id)
+      FROM TABLE(
+        INFER_SCHEMA(
+          LOCATION=>'@FTT_DATA.FTT_TEST_DATA_SCHEMA.CSV_STAGE/data_basic.csv.gz',
+          FILE_FORMAT=>'{file_format}'
+        )
+      ));").replace("\n", "").replace("\t", "");
+
+    // 5 - copy into com os dados do arquivo carregado
+    let copy_into = format!("COPY INTO FTT_DATA.FTT_TEST_DATA_SCHEMA.{table_name} FROM @FTT_DATA.FTT_TEST_DATA_SCHEMA.CSV_STAGE/data_basic.csv.gz
+        FILE_FORMAT = (
+        FORMAT_NAME= '{file_format}'
+        )
+        MATCH_BY_COLUMN_NAME=CASE_INSENSITIVE;").replace("\n", "").replace("\t", "to");
+
+    // execute PUT command via API call
+    // PUT não pode ser por API....
+    // solução: executar um processo com snowsql
+
+    // funcionou! consigo executar queries através do processo. agora é só executar o comando PUT, com o arquivo passado na função
+    // arquivo PUT executado com sucesso
+    let final_query = file_format_query + &put_command + &create_table + &copy_into;
+    let output = Command::new("/home/pelegolas/bin/snowsql")
+        .arg("-q")
+        .arg(final_query)
+        .output()
+        .expect("faild to execute command");
+}
+
+fn ftt_run() {}
+
+
 
 // procura uma macro {{ table() }} e retorna o nome da tabela
 fn find_and_replace_macro() {}
