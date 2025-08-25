@@ -182,7 +182,7 @@ fn ftt_load(csv_file_path: std::path::PathBuf) {
     // funcionou! consigo executar queries através do processo. agora é só executar o comando PUT, com o arquivo passado na função
     // arquivo PUT executado com sucesso
     let final_query = file_format_query + &put_command + &create_table + &copy_into;
-    let output = Command::new("/home/pelegolas/bin/snowsql")
+    let _output = Command::new("/home/pelegolas/bin/snowsql")
         .arg("-q")
         .arg(final_query)
         .output()
